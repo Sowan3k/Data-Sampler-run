@@ -2,7 +2,7 @@
 
 ## Executed offline
 
-`python -m pytest -q`: 25 tests. Covers parsing, Bangla matching, timezone boundaries, fake YouTube API, search checkpoints, unavailable ID retention, metadata expiry, interrupted hydration, synthetic flag states, malformed model responses, timestamp bounds, nominal alpha, feasibility exclusion, retry accounting, HTTP authorization, blind coder data isolation and permission gating. `node --check webapp/static/app.js` passed.
+`python -m pytest -q`: 44 tests. `tests/test_fixes.py` covers corpus locking after removal and old playback checks, channel locators after purge, repost-group availability, label prevalence from Level 1 and 3 only, the screened-eligible sample pool, both alpha rules, the categorical codebook, timestamp formats, key redaction, the screening and evidence-scope endpoints, and the Gemini duration cap with error detail. Covers parsing, Bangla matching, timezone boundaries, fake YouTube API, search checkpoints, unavailable ID retention, metadata expiry, interrupted hydration, synthetic flag states, malformed model responses, timestamp bounds, nominal alpha, feasibility exclusion, retry accounting, HTTP authorization, blind coder data isolation and permission gating. `node --check webapp/static/app.js` passed.
 
 ## Researcher acceptance tests (not executed live)
 

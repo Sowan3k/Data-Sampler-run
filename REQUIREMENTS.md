@@ -8,9 +8,9 @@
 | R04 | Local background jobs with status, cooperative pause/cancel, retry | Implemented |
 | R05 | Inventory, manual group/repost, dated playback and disclosure | Implemented |
 | R06 | Gemini structured drafts, local validation and model/config/prompt hashes | Implemented; SDK/service integration unverified |
-| R07 | Persona/video annotation, evidence registry and revision history | Implemented with fixed codebook |
-| R08 | Blind coder access, sample assignment, independent submissions and adjudication | Implemented local-only |
-| R09 | Nominal alpha, descriptive statistics, feasibility gates | Implemented; scientific validation required |
+| R07 | Persona/video annotation, evidence registry and revision history | Implemented with fixed categorical codebook 1.1 |
+| R08 | Blind coder access, sample assignment from screened-eligible videos, independent submissions and adjudication | Implemented local-only |
+| R09 | Nominal alpha (two missing-data rules), descriptive statistics, availability outcome, feasibility gates | Implemented; scientific validation required |
 | R10 | Retention checks and permission-gated aggregate export | Partial; policy review remains required |
 | R11 | Help, responsive navigation, light/dark styles, launcher | Implemented; browser test pending |
 | R12 | Matched comparison corpus, configurable codebook, formal audit sample, inferential models | Deferred |

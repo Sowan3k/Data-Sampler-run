@@ -11,8 +11,9 @@ seeds:
   # The collector reads each video's channel and expands its full upload history.
   videos: []
   # Channel handles you already know.
-  handles:
-    - "@Ai_World_2025_bd"
+  # Add handles in the Data discovery page. Do not commit channels that fact-checkers
+  # have not publicly identified (proposal section 7.10).
+  handles: []
   # Channel IDs (UC...), for example from Dismislab if they reply.
   channel_ids: []
 
@@ -70,6 +71,8 @@ search:
 gemini:
   model: ""   # choose a supported model through the interface
   seconds_between_calls: 4
+  # Automatic screening batches skip uploads longer than this (free tier: 8 hours of YouTube video a day).
+  max_duration_seconds: 180
   # Hints given to the model. Verify these against the Election Commission list.
   party_symbols:
     "ধানের শীষ (sheaf of paddy)": "BNP"

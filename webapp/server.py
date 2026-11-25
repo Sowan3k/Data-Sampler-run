@@ -29,11 +29,13 @@ def identity(req:Request):
 def admin(who=Depends(identity)):
     if who!='admin':fail('Administrator access required.',403)
     return who
+SECRET_PATTERN=re.compile(r'AIza[0-9A-Za-z_-]{20,}|(?i:key=)[^&\s"\']+')
 def errtext(e):
-    msg=str(e) if isinstance(e,(ValueError,YouTubeErrorType())) else type(e).__name__+': operation failed. Check configuration or connectivity.'
+    # Keep the service's own message so live failures can be diagnosed; strip anything key-like.
+    msg=str(e) if isinstance(e,(ValueError,YouTubeErrorType())) else f'{type(e).__name__}: {e}'
     for key in KEYS.values():
         if key:msg=msg.replace(key,'[redacted]')
-    return msg[:500]
+    return SECRET_PATTERN.sub('[redacted]',msg)[:500]
 def YouTubeErrorType():
     from pilot.youtube import YouTubeError
     return YouTubeError
@@ -61,16 +63,21 @@ def worker():
                         if not cfg['permissions']['gemini']:raise ValueError('Confirm permission for third-party video processing first.')
                         if not KEYS['gemini'] or not cfg['gemini']['model']:raise ValueError('Connect Gemini and select a verified model first.')
                         from google import genai
-                        g=genai.Client(api_key=KEYS['gemini']);prompt=gemini_screen.build_prompt(cfg);ph=C.hashval(prompt);ch=C.hashval(cfg);n=0
+                        g=genai.Client(api_key=KEYS['gemini']);prompt=gemini_screen.build_prompt(cfg);ph=C.hashval(prompt);ch=C.hashval(cfg);n=0;skipped=0
+                        # Automatic batches skip long or unknown-length uploads to protect the daily video allowance.
+                        # Explicitly listed IDs are always attempted.
+                        cap=int(cfg['gemini'].get('max_duration_seconds',180));explicit=bool(args.get('ids'))
                         for v in C.library(c,cfg):
                             check();vid=v['video_id']
-                            if not v['active'] or (args.get('ids') and vid not in args['ids']):continue
+                            if not v['active'] or (explicit and vid not in args['ids']):continue
+                            if not explicit and (v['duration_seconds'] is None or v['duration_seconds']>cap):skipped+=1;continue
                             if c.execute('SELECT 1 FROM model_runs WHERE video_id=? AND model=? AND config_hash=? AND prompt_hash=? AND ok=1',(vid,cfg['gemini']['model'],ch,ph)).fetchone():continue
                             if n>=args['limit']:break
                             try:
                                 raw=gemini_screen.call_gemini(g,cfg['gemini']['model'],prompt,'https://www.youtube.com/watch?v='+vid);parsed=gemini_screen.parse_output(raw,v['duration_seconds']);ok=1;payload=parsed.model_dump_json();error=''
-                            except Exception as e:ok=0;payload=None;error='Model request or validation failed: '+type(e).__name__
-                            c.execute('INSERT INTO model_runs(video_id,model,config_hash,prompt_hash,version,created,ok,payload,error) VALUES(?,?,?,?,?,?,?,?,?)',(vid,cfg['gemini']['model'],ch,ph,cfg['version'],C.now(),ok,payload,error));c.commit();n+=1;progress(f'{n} attempts; latest {vid}: '+('validated draft' if ok else 'failed; retry later'));STOP.wait(float(cfg['gemini']['seconds_between_calls']))
+                            except Exception as e:ok=0;payload=None;error='Model request or validation failed: '+errtext(e)
+                            c.execute('INSERT INTO model_runs(video_id,model,config_hash,prompt_hash,version,created,ok,payload,error) VALUES(?,?,?,?,?,?,?,?,?)',(vid,cfg['gemini']['model'],ch,ph,cfg['version'],C.now(),ok,payload,error));c.commit();n+=1;progress(f'{n} attempts; latest {vid}: '+('validated draft' if ok else 'failed; see the video page for the error'));STOP.wait(float(cfg['gemini']['seconds_between_calls']))
+                        progress(f'{n} attempts. {skipped} uploads skipped as longer than {cap}s or of unknown length; list their IDs to screen them anyway.')
                     else:
                         if not cfg['permissions']['collection']:raise ValueError('Confirm collection permission in Research setup first.')
                         if not KEYS['youtube']:raise ValueError('Connect YouTube API first.')
@@ -123,6 +130,8 @@ def save_config(data:dict,_=Depends(admin)):
         if a>b or (b-a).days>1096:fail('Study period must be ordered and at most three years.')
         if not cfg['version'].strip():fail('Codebook version required')
         if not 0<=float(cfg['gemini']['seconds_between_calls'])<=120:fail('Model delay must be 0 to 120 seconds')
+        cfg['gemini'].setdefault('max_duration_seconds',180)
+        if not 10<=int(cfg['gemini']['max_duration_seconds'])<=3600:fail('Maximum screening length must be 10 to 3600 seconds')
         if not 1<=int(cfg['storage']['api_data_max_age_days'])<=30:fail('Metadata lifetime must be 1 to 30 days')
         if not 1<=int(cfg['search']['max_pages_per_query'])<=100:fail('Page cap must be 1 to 100')
         if not cfg['search']['queries'] or any(not str(q).strip() for q in cfg['search']['queries']):fail('At least one query is required')
@@ -213,13 +222,19 @@ def observe(vid:str,d:dict,_=Depends(admin)):
         target=c.execute('SELECT group_id FROM inventory WHERE video_id=?',(group,)).fetchone()[0]
         if group!=vid and target!=group:fail('Choose the canonical group video, not another repost.')
         if group!=vid and c.execute('SELECT 1 FROM inventory WHERE group_id=? AND video_id<>?',(vid,vid)).fetchone():fail('Reassign existing group members before moving the canonical video.')
-        c.execute('UPDATE inventory SET playback=?,playback_at=?,creator_label=?,platform_label=?,label_at=?,group_id=?,group_note=? WHERE video_id=?',(play,C.now(),creator,platform,C.now(),group,d.get('group_note',''),vid));c.commit();C.audit(c,'observation',{'video_id':vid});return {'saved':True}
+        scr=d.get('screening');snote=str(d.get('screening_note','')).strip()
+        if scr is not None and scr not in C.SCREENING:fail('Invalid screening decision')
+        if scr=='excluded' and not snote:fail('Give a reason for excluding the video')
+        c.execute('UPDATE inventory SET playback=?,playback_at=?,creator_label=?,platform_label=?,label_at=?,group_id=?,group_note=? WHERE video_id=?',(play,C.now(),creator,platform,C.now(),group,d.get('group_note',''),vid))
+        if scr is not None:c.execute('UPDATE inventory SET screening=?,screening_note=?,screening_at=? WHERE video_id=?',(scr,snote,C.now(),vid))
+        c.commit();C.audit(c,'observation',{'video_id':vid,'screening':scr});return {'saved':True}
 @app.post('/api/video/{vid}/evidence')
 def evidence(vid:str,d:dict,_=Depends(admin)):
     with cx() as c:
         if not c.execute('SELECT 1 FROM inventory WHERE video_id=?',(vid,)).fetchone():fail('Video not found',404)
         if d.get('kind') not in C.KINDS or not d.get('note','').strip():fail('Evidence type and rationale required')
         if d.get('kind') in ('fact_check','creator_disclosure','platform_label') and not re.match(r'^https?://',d.get('source','')):fail('Provide a source URL')
+        if d.get('persona') not in C.EVIDENCE_SCOPES:fail('Choose a persona scope: all, some_personas or unclear')
         date.fromisoformat(d.get('observed','')[:10]);c.execute('INSERT INTO evidence(video_id,kind,source,observed,persona,note) VALUES(?,?,?,?,?,?)',(vid,d['kind'],d.get('source',''),d['observed'],d.get('persona',''),d['note']));c.commit();return {'saved':True}
 @app.get('/api/codebook')
 def codebook(who=Depends(identity)):
@@ -254,10 +269,12 @@ def assign(d:dict,_=Depends(admin)):
     with cx() as c:
         cfg=C.config(c);available={r[0] for r in c.execute('SELECT name FROM coders')}
         if not set(names)<=available:fail('Unknown coder')
-        ids=sorted(r['video_id'] for r in C.library(c,cfg) if r['active'] and r['group_id']==r['video_id']);sample=random.Random(seed).sample(ids,min(n,len(ids)))
+        ids=sorted(r['video_id'] for r in C.screened_eligible(c,cfg))
+        if not ids:fail('No screened-eligible videos yet. Mark videos as eligible in the screening field on each video page first.')
+        sample=random.Random(seed).sample(ids,min(n,len(ids)))
         for v in sample:
             for name in names:c.execute('INSERT OR IGNORE INTO assignments VALUES(?,?,?)',(v,name,cfg['version']))
-        c.commit();C.audit(c,'sample',{'seed':seed,'n':len(sample),'coders':names,'ids':sample,'version':cfg['version']});return {'assigned':len(sample)}
+        c.commit();C.audit(c,'sample',{'seed':seed,'n':len(sample),'pool':len(ids),'coders':names,'ids':sample,'version':cfg['version']});return {'assigned':len(sample),'pool':len(ids)}
 @app.get('/api/assignments')
 def assignments(who=Depends(identity)):
     with cx() as c:

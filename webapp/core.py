@@ -22,15 +22,31 @@ CREATE TABLE IF NOT EXISTS finals(id INTEGER PRIMARY KEY,video_id TEXT,version T
 CREATE TABLE IF NOT EXISTS model_runs(id INTEGER PRIMARY KEY,video_id TEXT,model TEXT,config_hash TEXT,prompt_hash TEXT,version TEXT,created TEXT,ok INTEGER,payload TEXT,error TEXT);
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,action TEXT,detail TEXT,created TEXT);
 '''
-DEFAULT_EXTRA={'title':'Who Gets Synthesised?','version':'1.0','thresholds':{'videos':100,'channels':5,'verified':50,'alpha':0.67,'reliability_n':50},'permissions':{'ethics':False,'collection':False,'analysis':False,'gemini':False,'export':False},'literature':'pending','literature_note':'','search_limit':100,'general_limit':10000,'study_notes':'Ordinary speaking synthetic personas; exclude identifiable real-person deepfakes, cartoons and genuine footage. Reposts grouped.'}
-VIDEO_FIELDS={'format':['street_interview','single_testimonial','montage','skit','news_style','other','unknown'],'genre':['persuasive','satirical','other','unknown'],'interviewer':['yes','no','unknown'],'news_brand':['yes','no','unknown'],'captions':['yes','no','unknown'],'authenticity':'text','frame':'text','notes':'text'}
-PERSONA_FIELDS={'gender':['male','female','other','unknown'],'age':['child','young_adult','middle_aged','elderly','unknown'],'setting':['rural','urban','unknown'],'disability_marker':['yes','no','unknown'],'visible_markers':'text','occupation_markers':'text','stated_identity':'text','transcript_bn':'text','party_mention':'text','endorsement':'text','attack':'text','issues':'text','factual_claim':'text','emotion':['none','fear','anger','hope','pride','humour','grievance','other','unknown'],'voice':['personal','collective','none','unknown'],'dialect':'text','notes':'text'}
+DEFAULT_EXTRA={'title':'Who Gets Synthesised?','version':'1.1','thresholds':{'videos':100,'channels':5,'verified':50,'alpha':0.67,'reliability_n':50},'permissions':{'ethics':False,'collection':False,'analysis':False,'gemini':False,'export':False},'literature':'pending','literature_note':'','search_limit':100,'general_limit':10000,'study_notes':'Ordinary speaking synthetic personas; exclude identifiable real-person deepfakes, cartoons and genuine footage. Reposts grouped.'}
+# Codebook 1.1. Variables that are counted or tested for reliability are categorical, so
+# "BNP", "bnp" and a Bangla spelling cannot register as disagreement. Free text is kept for notes.
+YNU=['yes','no','unknown']
+PARTIES=['bnp','jamaat','ncp','awami_league','jatiya_party','other_party','multiple','none']
+OCCUPATIONS=['farmer','rickshaw_or_transport','shopkeeper_or_vendor','labourer','student','teacher','professional','police_or_security','religious_cleric','homemaker','journalist','other']
+RELIGIONS=['muslim','hindu','christian','buddhist','other']
+VIDEO_FIELDS={'format':['street_interview','single_testimonial','montage','skit','news_style','other','unknown'],'genre':['persuasive','satirical','other','unknown'],'party_favoured':PARTIES+['unknown'],'interviewer':YNU,'news_brand':YNU,'captions':YNU,'uniforms':YNU,'regional_dialect':YNU,'production_artifacts':YNU,'authenticity':'text','frame':'text','notes':'text'}
+PERSONA_FIELDS={'gender':['male','female','other','unknown'],'age':['child','young_adult','middle_aged','elderly','unknown'],'setting':['rural','urban','unknown'],'disability_marker':YNU,'visible_religion':RELIGIONS+['no_visible_marker','unknown'],'stated_religion':RELIGIONS+['not_stated'],'visible_occupation':OCCUPATIONS+['no_visible_marker','unknown'],'stated_occupation':OCCUPATIONS+['not_stated'],'visible_markers':'text','stated_identity':'text','transcript_bn':'text','endorses_party':PARTIES+['unknown'],'attacks_party':PARTIES+['unknown'],'issues':'text','factual_claim':YNU,'factual_claim_text':'text','emotion':['none','fear','anger','hope','pride','humour','grievance','other','unknown'],'voice':['personal','collective','none','unknown'],'dialect':'text','notes':'text'}
+CRITICAL_PERSONA=['gender','age','endorses_party']
 KINDS=['fact_check','creator_disclosure','platform_label','visual_judgment','provenance','watermark','other']
 def now(): return db.utcnow()
 def dumps(x): return json.dumps(x,ensure_ascii=False,sort_keys=True)
 def hashval(x): return hashlib.sha256(dumps(x).encode()).hexdigest()
+# Research columns added in 0.3.0. channel_id is kept as a locator (like video_id) so channel
+# counts survive the 30-day metadata purge; screening records the admin's eligibility screen.
+INVENTORY_COLUMNS={'channel_id':'TEXT','screening':"TEXT DEFAULT 'unscreened'",'screening_note':"TEXT DEFAULT ''",'screening_at':'TEXT'}
+SCREENING=['unscreened','eligible','excluded','uncertain']
+EVIDENCE_SCOPES=['unclear','all','some_personas']
 def connect(path):
-    c=db.connect(path); c.execute('PRAGMA busy_timeout=10000'); c.execute('PRAGMA journal_mode=WAL'); c.executescript(SCHEMA); c.commit(); return c
+    c=db.connect(path); c.execute('PRAGMA busy_timeout=10000'); c.execute('PRAGMA journal_mode=WAL'); c.executescript(SCHEMA)
+    have={r[1] for r in c.execute('PRAGMA table_info(inventory)')}
+    for col,decl in INVENTORY_COLUMNS.items():
+        if col not in have:c.execute(f'ALTER TABLE inventory ADD COLUMN {col} {decl}')
+    c.commit(); return c
 def get(c,k,default=None):
     r=c.execute('SELECT v FROM settings WHERE k=?',(k,)).fetchone();return json.loads(r[0]) if r else default
 def put(c,k,v): c.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v',(k,dumps(v)));c.commit()
@@ -38,9 +54,10 @@ def config(c):
     cfg=load_config(ROOT/'config.yaml');cfg['search']['video_duration']='any';cfg['gemini']['model']='';cfg.update(json.loads(dumps(DEFAULT_EXTRA)));return get(c,'config',cfg)
 def audit(c,a,d):c.execute('INSERT INTO audit(action,detail,created) VALUES(?,?,?)',(a,dumps(d),now()));c.commit()
 def asrows(c,q,p=()):return [dict(r) for r in c.execute(q,p)]
-def register(c,vid,source,detail):
+def register(c,vid,source,detail,channel_id=None):
     if not re.fullmatch(r'[A-Za-z0-9_-]{11}',vid): raise ValueError('Invalid video ID')
     c.execute('INSERT OR IGNORE INTO inventory(video_id,group_id) VALUES(?,?)',(vid,vid));db.add_discovery(c,vid,source,detail)
+    if channel_id:c.execute('UPDATE inventory SET channel_id=COALESCE(channel_id,?) WHERE video_id=?',(channel_id,vid))
     c.commit()
 def cutoff(cfg):return (datetime.now(timezone.utc)-timedelta(days=min(30,int(cfg['storage']['api_data_max_age_days'])))).isoformat()
 def purge(c,cfg,vid=None):
@@ -58,6 +75,7 @@ def ingest(c,cfg,client,ids):
             if not item:
                 purge(c,cfg,vid);c.execute("UPDATE inventory SET retrieval='unavailable',checked=? WHERE video_id=?",(now(),vid));db.record_availability(c,vid,'not_returned');continue
             db.upsert_video(c,item,parse_iso_duration(item.get('contentDetails',{}).get('duration')))
+            if item.get('snippet',{}).get('channelId'):c.execute('UPDATE inventory SET channel_id=? WHERE video_id=?',(item['snippet']['channelId'],vid))
             v=dict(c.execute('SELECT * FROM videos WHERE video_id=?',(vid,)).fetchone());db.save_prescreen(c,vid,prescreen_video(v,cfg))
             c.execute('UPDATE inventory SET retrieval=?,checked=? WHERE video_id=?',(v['privacy_status'] or 'unknown',now(),vid));db.record_availability(c,vid,v['privacy_status'] or 'unknown')
         c.commit()
@@ -113,19 +131,39 @@ def expand(c,cfg,client,check,progress):
             check();data=client.get('playlistItems',part='contentDetails',playlistId=playlist,maxResults=50,pageToken=token);pages+=1;vids=[]
             for item in data.get('items',[]):
                 d=item.get('contentDetails',{});vid=d.get('videoId');published=d.get('videoPublishedAt')
-                if vid and (not published or in_period(published,cfg['study_period'])):register(c,vid,'channel_expansion',ch['id']);vids.append(vid)
+                if vid and (not published or in_period(published,cfg['study_period'])):register(c,vid,'channel_expansion',ch['id'],channel_id=ch['id']);vids.append(vid)
             next_token=data.get('nextPageToken');c.execute('INSERT OR REPLACE INTO checkpoints VALUES(?,?,?,?,?)',(key,next_token,pages,int(not next_token),now()));c.commit();progress(f'{ch["id"]}: {pages} playlist pages')
             if vids:ingest(c,cfg,client,vids)
             if not next_token:break
             if next_token==token:raise ValueError('Repeated playlist token; coverage incomplete')
             token=next_token
 
+def availability(r):
+    """Latest observed state of an upload. An observation, never a reason to drop a coded video."""
+    if r.get('playback')=='unavailable' or r.get('last_status') in ('not_returned','unavailable'):return 'unavailable'
+    if r.get('last_status') in ('public','unlisted','private'):return r['last_status']
+    return 'unknown'
 def library(c,cfg):
-    q='''SELECT i.*,v.title,v.channel_id,v.channel_title,v.published_at,v.duration_seconds,v.fetched_at,v.synthetic_field_present,v.contains_synthetic_media,p.in_period,p.election_hits,p.ai_hits,p.is_short, (SELECT COUNT(*) FROM evidence e WHERE e.video_id=i.video_id) evidence_count FROM inventory i LEFT JOIN videos v USING(video_id) LEFT JOIN prescreen p USING(video_id) ORDER BY CASE WHEN p.election_hits!='[]' AND p.ai_hits!='[]' THEN 0 WHEN p.election_hits!='[]' OR p.ai_hits!='[]' THEN 1 ELSE 2 END,i.video_id'''
+    q='''SELECT i.video_id,i.retrieval,i.checked,i.playback,i.playback_at,i.group_id,i.group_note,i.manual_channel,
+    i.creator_label,i.platform_label,i.label_at,i.screening,i.screening_note,i.screening_at,
+    COALESCE(v.channel_id,i.channel_id) channel_id,v.title,v.channel_title,v.published_at,v.duration_seconds,v.fetched_at,
+    v.synthetic_field_present,v.contains_synthetic_media,p.in_period,p.election_hits,p.ai_hits,p.is_short,
+    (SELECT COUNT(*) FROM evidence e WHERE e.video_id=i.video_id) evidence_count,
+    (SELECT a.status FROM availability_checks a WHERE a.video_id=i.video_id ORDER BY a.id DESC LIMIT 1) last_status,
+    (SELECT a.checked_at FROM availability_checks a WHERE a.video_id=i.video_id ORDER BY a.id DESC LIMIT 1) last_checked
+    FROM inventory i LEFT JOIN videos v USING(video_id) LEFT JOIN prescreen p USING(video_id)
+    ORDER BY CASE WHEN p.election_hits!='[]' AND p.ai_hits!='[]' THEN 0 WHEN p.election_hits!='[]' OR p.ai_hits!='[]' THEN 1 ELSE 2 END,i.video_id'''
     out=asrows(c,q)
     for r in out:
-        r['priority']='unknown' if r['in_period'] is None else ('high' if r['election_hits']!='[]' and r['ai_hits']!='[]' else 'medium' if r['election_hits']!='[]' or r['ai_hits']!='[]' else 'low');r['fresh']=bool(r['fetched_at'] and r['fetched_at']>=cutoff(cfg));r['active']=bool(r['fresh'] and r['retrieval']=='public' and r['in_period']);r['flag']='absent' if not r['synthetic_field_present'] else ('null' if r['contains_synthetic_media'] is None else str(bool(r['contains_synthetic_media'])).lower())
+        r['screening']=r.get('screening') or 'unscreened'
+        r['priority']='unknown' if r['in_period'] is None else ('high' if r['election_hits']!='[]' and r['ai_hits']!='[]' else 'medium' if r['election_hits']!='[]' or r['ai_hits']!='[]' else 'low');r['fresh']=bool(r['fetched_at'] and r['fetched_at']>=cutoff(cfg));r['active']=bool(r['fresh'] and r['retrieval']=='public' and r['in_period']);r['flag']='absent' if not r['synthetic_field_present'] else ('null' if r['contains_synthetic_media'] is None else str(bool(r['contains_synthetic_media'])).lower());r['availability']=availability(r)
     return out
+
+def screened_eligible(c,cfg):
+    """Reliability sample pool: canonical uploads the admin screened (or adjudicated) as eligible
+    and that were viewable at the last check, so coders spend their time on in-scope videos."""
+    finals={r['video_id']:json.loads(r['payload']).get('eligibility') for r in latest(c,'finals',cfg['version'])}
+    return [r for r in library(c,cfg) if r['group_id']==r['video_id'] and r['availability'] in ('public','unlisted') and (r['screening']=='eligible' or finals.get(r['video_id'])=='eligible')]
 
 def validate_annotation(a,duration=None):
     if a.get('origin_judgment','uncertain') not in ['suspected_synthetic','suspected_genuine','uncertain']:raise ValueError('Invalid origin judgment')
@@ -161,16 +199,23 @@ def level(c,vid):
         if len([x for x in a if x.get('origin_judgment')=='suspected_synthetic'])>=2:return 3
     return 0
 
-def alpha_nominal(groups):
+# Missing-data rules for alpha. STRICT keeps 'unknown'/'uncertain' as a category (used for the
+# feasibility gate); LOOSE drops them, which can inflate agreement on perceived identity codes.
+STRICT_DROP=(None,'','missing','not_applicable')
+LOOSE_DROP=STRICT_DROP+('unknown','uncertain')
+def alpha_nominal(groups,drop=STRICT_DROP):
     # Krippendorff nominal coincidence matrix, variable number of coders, missing dropped.
     counts=Counter(); total=0.; disagree=0.
     for vals in groups:
-        vals=[v for v in vals if v not in (None,'','missing','not_applicable','unknown','uncertain')];m=len(vals)
+        vals=[v for v in vals if v not in drop];m=len(vals)
         if m<2:continue
         ct=Counter(vals);total+=m;counts.update(ct);disagree+=(m*m-sum(n*n for n in ct.values()))/(m-1)
     if total<2:return None
     expected=(total*total-sum(n*n for n in counts.values()))/(total-1)
     return None if expected==0 else 1-disagree/expected
+def _alpha_entry(groups):
+    units=lambda drop:sum(sum(v not in drop for v in g)>=2 for g in groups)
+    return {'alpha':alpha_nominal(groups,STRICT_DROP),'units':units(STRICT_DROP),'alpha_excluding_uncertain':alpha_nominal(groups,LOOSE_DROP),'units_excluding_uncertain':units(LOOSE_DROP)}
 
 def reliability(c,cfg):
     by=defaultdict(list)
@@ -179,36 +224,67 @@ def reliability(c,cfg):
         if (r['video_id'],r['coder']) in assigned:by[r['video_id']].append(json.loads(r['payload']))
     pairs={k:v for k,v in by.items() if len(v)>=2};out={}
     for field in ['eligibility','origin_judgment']+[k for k,v in VIDEO_FIELDS.items() if isinstance(v,list)]:
-        groups=[[a.get('eligibility') if field=='eligibility' else a.get('origin_judgment') if field=='origin_judgment' else a.get('video',{}).get(field) for a in vals] for vals in pairs.values()];out[field]={'alpha':alpha_nominal(groups),'units':sum(sum(v not in (None,'','missing','not_applicable','unknown','uncertain') for v in g)>=2 for g in groups)}
-    # Matching requires independent coders to use shared persona IDs, reviewed by admin.
-    for field in ['gender','age','endorsement']:
+        groups=[[a.get('eligibility') if field=='eligibility' else a.get('origin_judgment') if field=='origin_judgment' else a.get('video',{}).get(field) for a in vals] for vals in pairs.values()];out[field]=_alpha_entry(groups)
+    # Matching requires independent coders to use shared persona IDs (order of appearance), reviewed by admin.
+    for field in [k for k,v in PERSONA_FIELDS.items() if isinstance(v,list)]:
         groups=[]
         for vals in pairs.values():
             ids=set.intersection(*(set(str(p['id']) for p in a.get('personas',[])) for a in vals))
             for pid in ids:groups.append([next(p for p in a['personas'] if str(p['id'])==pid).get('codes',{}).get(field) for a in vals])
-        out[field]={'alpha':alpha_nominal(groups),'units':sum(sum(v not in (None,'','missing','not_applicable','unknown','uncertain') for v in g)>=2 for g in groups)}
-    return {'double_coded':len(pairs),'variables':out,'warning':'Persona matching uses shared IDs; verify correspondence before interpreting alpha. Constant variables yield undefined alpha.'}
+        out[field]=_alpha_entry(groups)
+    return {'double_coded':len(pairs),'variables':out,'warning':"Persona matching uses shared IDs; number personas by order of appearance and verify correspondence before interpreting alpha. The gate uses alpha with 'unknown' and 'uncertain' kept as categories; the second column drops them and can overstate agreement. Constant variables yield undefined alpha."}
+
+NOT_A_PARTY=('none','missing','not_applicable','uncertain','unknown','')
 def report(c,cfg):
-    lib=library(c,cfg);lookup={r['video_id']:r for r in lib};finals=latest(c,'finals',cfg['version']);groups={};channels=set();dist=Counter();labels=Counter();excluded=0;by_channel=Counter();by_level=defaultdict(Counter);messages=Counter();formats=Counter()
+    lib=library(c,cfg);lookup={r['video_id']:r for r in lib};finals=latest(c,'finals',cfg['version']);groups={};excluded=0
     for f in finals:
-        a=json.loads(f['payload']);r=lookup.get(f['video_id'],{});v=f['video_id'];
+        a=json.loads(f['payload']);v=f['video_id'];r=lookup.get(v,{})
         if a['eligibility']=='excluded':excluded+=1
-        if a['eligibility']!='eligible' or not r.get('active') or r.get('playback')!='viewable' or not r.get('playback_at') or r['playback_at']<cutoff(cfg):continue
+        if a['eligibility']!='eligible':continue
+        # Corpus membership is fixed by the adjudicated decision plus origin evidence. Later removal,
+        # privacy changes, purged metadata or an old playback check do not drop a coded video:
+        # availability is an outcome (RQ4), reported below. Only metadata that positively places
+        # the upload outside the study period excludes it.
+        if r.get('in_period')==0:continue
         lev=level(c,v)
         if not lev:continue
-        g=r['group_id'] or v
+        g=r.get('group_id') or v
         # representative: prefer stronger evidence; deterministic ID tie break
         if g not in groups or (lev,v)<(groups[g][0],groups[g][1]):groups[g]=(lev,v,a)
-        if r.get('channel_id'):channels.add(r['channel_id'])
-    for lev,v,a in groups.values():
-        by_channel[lookup[v].get('channel_id') or 'unknown']+=1
-        formats[a.get('video',{}).get('format','missing')]+=1
+    rank={'public':0,'unlisted':1,'private':2,'unknown':3,'unavailable':4}
+    rows=[]
+    for g,(lev,v,a) in groups.items():
+        members=[x for x in lib if (x['group_id'] or x['video_id'])==g] or [lookup.get(v,{})]
+        # a content group counts as available if any of its uploads was available at the last check
+        state=min((m.get('availability','unknown') for m in members),key=lambda s:rank.get(s,3))
+        rows.append((g,lev,v,a,state))
+    available=[x for x in rows if x[4] in ('public','unlisted')]
+    chan=lambda v:lookup.get(v,{}).get('channel_id') or 'unknown'
+    n=len(rows);n_av=len(available)
+    channels_all={chan(x[2]) for x in rows}-{'unknown'};channels_av={chan(x[2]) for x in available}-{'unknown'}
+    verified=sum(x[1] in (1,2) for x in rows);verified_av=sum(x[1] in (1,2) for x in available)
+    dist=Counter();by_level=defaultdict(Counter);messages=Counter();formats=Counter();parties=Counter();labels=Counter();by_channel=Counter()
+    for g,lev,v,a,state in rows:
+        by_channel[chan(v)]+=1;vc=a.get('video',{})
+        formats[vc.get('format','missing')]+=1;parties[vc.get('party_favoured','missing')]+=1
         for p in a.get('personas',[]):
-            codes=p.get('codes',{});dist['age:'+codes.get('age','missing')]+=1;dist['gender:'+codes.get('gender','missing')]+=1;dist['setting:'+codes.get('setting','missing')]+=1
+            codes=p.get('codes',{})
+            for k in ('gender','age','setting','visible_religion','stated_religion','visible_occupation','stated_occupation','voice','emotion'):dist[k+':'+codes.get(k,'missing')]+=1
             by_level[str(lev)]['age:'+codes.get('age','missing')]+=1
-            for k in ('endorsement','attack','factual_claim','issues'):
-                if codes.get(k,'').strip():messages[k]+=1
-        if lev in (1,3):labels[lookup[v].get('platform_label','unknown')]+=1
-    n=len(groups);verified=sum(x[0] in (1,2) for x in groups.values());rel=reliability(c,cfg);t=cfg['thresholds'];critical=[rel['variables'][k]['alpha'] for k in ['gender','age','endorsement']]
-    cond={'eligible_unique': n>=t['videos'],'channels':len(channels)>=t['channels'],'verified_share':None if not n else verified/n*100>=t['verified'],'reliability':None if rel['double_coded']<t['reliability_n'] or any(x is None for x in critical) else all(x>=t['alpha'] for x in critical),'literature':True if cfg['literature']=='clear' and cfg['literature_note'].strip() else False if cfg['literature']=='overlap' else None,'permissions':all(cfg['permissions'][k] for k in ['ethics','collection','analysis'])}
-    return {'discovered':len(lib),'active':sum(r['active'] for r in lib),'unavailable':sum(r['retrieval']=='unavailable' for r in lib),'screened':c.execute('SELECT COUNT(DISTINCT video_id) FROM model_runs WHERE ok=1').fetchone()[0],'finalized':len(finals),'excluded':excluded,'eligible_unique':n,'channels':len(channels),'verified':verified,'verified_pct':round(verified/n*100,2) if n else None,'conditions':cond,'decision':'MET' if all(v is True for v in cond.values()) else 'NOT ESTABLISHED','reliability':rel,'distributions':dict(dist),'label_observations_level_1_3':dict(labels),'evidence_levels':dict(Counter(x[0] for x in groups.values())),'formats':dict(formats),'message_counts':dict(messages),'age_by_evidence_level':{k:dict(v) for k,v in by_level.items()},'channel_concentration':{'distinct_representative_channels':len(by_channel),'largest_channel_count':max(by_channel.values(),default=0),'leave_largest_channel_out_n':n-max(by_channel.values(),default=0)},'note':'Counts refer to discoverable current corpus, not platform census. Duplicate grouping and evidence assessments require human review.'}
+            if codes.get('endorses_party','missing') not in NOT_A_PARTY:messages['endorsement']+=1
+            if codes.get('attacks_party','missing') not in NOT_A_PARTY:messages['attack']+=1
+            if codes.get('factual_claim')=='yes':messages['factual_claim']+=1
+            if str(codes.get('issues','')).strip():messages['issues']+=1
+        # label prevalence only from videos whose inclusion did not depend on a label (Level 1 or 3)
+        if lev in (1,3):r=lookup.get(v,{});labels['platform:'+(r.get('platform_label') or 'unknown')]+=1;labels['creator:'+(r.get('creator_label') or 'unknown')]+=1
+    checks=[lookup.get(x[2],{}).get('last_checked') for x in rows];checks=[x for x in checks if x]
+    rel=reliability(c,cfg);t=cfg['thresholds'];critical=[rel['variables'][k]['alpha'] for k in CRITICAL_PERSONA]
+    # Proposal 7.9 gate: eligible distinct videos that remain available, from enough channels.
+    cond={'eligible_available': n_av>=t['videos'],'channels_available':len(channels_av)>=t['channels'],'verified_share':None if not n_av else verified_av/n_av*100>=t['verified'],'reliability':None if rel['double_coded']<t['reliability_n'] or any(x is None for x in critical) else all(x>=t['alpha'] for x in critical),'literature':True if cfg['literature']=='clear' and cfg['literature_note'].strip() else False if cfg['literature']=='overlap' else None,'permissions':all(cfg['permissions'][k] for k in ['ethics','collection','analysis'])}
+    return {'discovered':len(lib),'active':sum(r['active'] for r in lib),'unavailable':sum(r['retrieval']=='unavailable' for r in lib),'screened':c.execute('SELECT COUNT(DISTINCT video_id) FROM model_runs WHERE ok=1').fetchone()[0],'screened_eligible':sum(r['screening']=='eligible' for r in lib),'finalized':len(finals),'excluded':excluded,
+        'eligible_unique':n,'eligible_available':n_av,'channels':len(channels_all),'channels_available':len(channels_av),'verified':verified,'verified_pct':round(verified/n*100,2) if n else None,'verified_available_pct':round(verified_av/n_av*100,2) if n_av else None,
+        'conditions':cond,'decision':'MET' if all(v is True for v in cond.values()) else 'NOT ESTABLISHED','reliability':rel,
+        'availability':dict(Counter(x[4] for x in rows)),'availability_oldest_check':min(checks) if checks else None,'availability_newest_check':max(checks) if checks else None,
+        'distributions':dict(dist),'party_favoured':dict(parties),'label_observations_level_1_3':dict(labels),'evidence_levels':dict(Counter(x[1] for x in rows)),'formats':dict(formats),'message_counts':dict(messages),'age_by_evidence_level':{k:dict(v) for k,v in by_level.items()},
+        'channel_concentration':{'distinct_representative_channels':len(by_channel),'largest_channel_count':max(by_channel.values(),default=0),'leave_largest_channel_out_n':n-max(by_channel.values(),default=0)},
+        'note':'Counts refer to the discoverable corpus, not a platform census. Coded eligible videos stay in the corpus after removal; availability is reported as an outcome. Duplicate grouping and evidence assessments require human review.'}

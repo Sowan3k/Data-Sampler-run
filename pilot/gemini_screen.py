@@ -135,6 +135,14 @@ class VideoScreen(BaseModel):
     notes: Optional[str] = None
 
 
+_SECRET = re.compile(r'AIza[0-9A-Za-z_-]{20,}|(?i:key=)[^&\s"\']+')
+
+
+def redact(text: str) -> str:
+    """Remove anything that looks like an API key from an error message."""
+    return _SECRET.sub("[redacted]", text)
+
+
 def build_prompt(cfg: dict[str, Any]) -> str:
     symbols = cfg.get("gemini", {}).get("party_symbols", {}) or {}
     hint = "; ".join(f"{k} = {v}" for k, v in symbols.items()) or "none provided"
@@ -154,10 +162,14 @@ def parse_output(text: str, duration: int | None = None) -> VideoScreen:
         cleaned = cleaned[start:end + 1]
     result = VideoScreen.model_validate(json.loads(cleaned))
     def seconds(t):
+        # Accepts M:SS, MM:SS, H:MM:SS and fractional seconds (Gemini writes all of these).
         if t is None: return None
-        if not re.fullmatch(r"\d{2,}:[0-5]\d", t): raise ValueError("Invalid MM:SS timestamp")
-        a,b = map(int,t.split(":")); n = 60*a+b
-        if duration is not None and n > duration: raise ValueError("Timestamp beyond duration")
+        m = re.fullmatch(r"(\d+):([0-5]\d)(?::([0-5]\d))?(?:\.\d+)?", str(t).strip())
+        if not m: raise ValueError(f"Invalid timestamp {t!r}")
+        a, b, c = m.groups()
+        n = int(a)*3600 + int(b)*60 + int(c) if c is not None else int(a)*60 + int(b)
+        # one second of tolerance for rounding at the end of a clip
+        if duration is not None and n > duration + 1: raise ValueError(f"Timestamp {t} beyond duration {duration}s")
         return n
     ids = set()
     for p in result.personas:
@@ -213,7 +225,7 @@ def screen_videos(conn: sqlite3.Connection, cfg: dict[str, Any], video_ids: list
         except (ValidationError, ValueError, json.JSONDecodeError) as exc:
             error = f"parse: {exc}"[:2000]
         except Exception as exc:  # network, quota, unsupported video
-            error = f"call: {type(exc).__name__}; inspect connection and model settings"
+            error = f"call: {type(exc).__name__}: {redact(str(exc))}"[:2000]
         conn.execute(
             """INSERT INTO gemini_screens (video_id, model, run_at, parsed_ok, output_json, raw_text, error)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
