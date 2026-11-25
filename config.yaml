@@ -1,0 +1,85 @@
+# Pilot configuration for "Who Gets Synthesised?"
+# Initial defaults; edit through the Research setup interface.
+
+study_period:
+  start: "2025-06-15"   # first reported wave of Veo 3 campaign clips
+  end: "2026-02-12"     # polling day, inclusive
+  timezone_offset_hours: 6   # dates are judged in Bangladesh time (UTC+6)
+
+seeds:
+  # Paste the lead videos you found on 23 Nov (full URLs or 11-character IDs).
+  # The collector reads each video's channel and expands its full upload history.
+  videos: []
+  # Channel handles you already know.
+  handles:
+    - "@Ai_World_2025_bd"
+  # Channel IDs (UC...), for example from Dismislab if they reply.
+  channel_ids: []
+
+prescreen:
+  # Veo 3 clips run about 8 to 16 seconds. 60 keeps all Shorts-length clips.
+  max_duration_seconds: 60
+  # Duration and terms are screening cues only; all in-period records are retained.
+  election_terms:
+    - "নির্বাচন"
+    - "ভোট"
+    - "ভোটার"
+    - "মতামত"
+    - "জনমত"
+    - "প্রার্থী"
+    - "ধানের শীষ"
+    - "দাঁড়িপাল্লা"
+    - "শাপলা কলি"
+    - "নৌকা"
+    - "লাঙ্গল"
+    - "বিএনপি"
+    - "জামায়াত"
+    - "এনসিপি"
+    - "election"
+    - "vote"
+    - "bnp"
+    - "jamaat"
+    - "ncp"
+    - "public opinion"
+  ai_terms:
+    - "#ai"
+    - "ai"
+    - "veo"
+    - "veo3"
+    - "এআই"
+    - "কৃত্রিম বুদ্ধিমত্তা"
+    - "ai generated"
+
+search:
+  # Search uses a separate default daily quota; verify actual project limits.
+  region_code: "BD"
+  relevance_language: "bn"
+  orders: ["relevance", "date"]
+  max_pages_per_query: 1
+  video_duration: "any"   # any | short (<4 min) | medium | long
+  queries:
+    - "ভোটারদের মতামত"
+    - "নির্বাচন নিয়ে মতামত"
+    - "জনমত"
+    - "নির্বাচন নিয়ে জনগণের মতামত"
+    - "ধানের শীষ মতামত"
+    - "দাঁড়িপাল্লা মতামত"
+    - "নির্বাচন ai"
+    - "নির্বাচন veo3"
+
+gemini:
+  model: ""   # choose a supported model through the interface
+  seconds_between_calls: 4
+  # Hints given to the model. Verify these against the Election Commission list.
+  party_symbols:
+    "ধানের শীষ (sheaf of paddy)": "BNP"
+    "দাঁড়িপাল্লা (scales)": "Jamaat-e-Islami"
+    "শাপলা কলি (water lily bud)": "NCP"
+    "নৌকা (boat)": "Awami League"
+    "লাঙ্গল (plough)": "Jatiya Party"
+
+storage:
+  db_path: "research.db"
+  # YouTube API Developer Policies III.E.4: non-authorized API data must be
+  # refreshed or deleted within 30 days; review applicable permissions.
+  api_data_max_age_days: 30

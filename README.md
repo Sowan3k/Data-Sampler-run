@@ -1,0 +1,49 @@
+# Synthetic Citizens Research Control Centre
+
+Version 0.2.0 | Local research prototype
+
+An operational local browser interface built from the supplied `synthetic-citizens-pilot` project. It starts with an empty research database; no examples or invented research findings appear in the application. Study defaults come from the proposal dated 23 November 2026. This version is intended for a feasibility pilot and further validation, not for unsupervised scientific or production use.
+
+## Quick start
+
+**Windows:** Install Python 3.11 or 3.12 (enable Add Python to PATH), extract the ZIP, then double-click `START-WINDOWS.bat`. The first run installs dependencies; subsequent launches reuse the environment. A browser opens automatically. Keep the launcher window open while collecting data. If automatic browser opening fails, copy the local URL printed in the window into a browser. The URL contains your private administrator token; do not share it.
+
+**macOS/Linux:** Extract, open a terminal in this folder, then run `bash start.sh`. Or run the three commands below. No Node.js, Docker or separate frontend installation is required.
+
+```sh
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+python -m pip install -r requirements.txt
+python run.py
+```
+
+The web application runs at `http://127.0.0.1:8765`. Use `RESEARCH_PORT` to change the port if necessary. The server is local-only by design. Do not expose it on the internet. If running on a remote machine or mobile environment, a secure deployment adaptation would be needed; this ZIP is not an iOS application.
+
+## Guided workflow
+
+1. **Research setup:** check the study period, queries, screening terms and feasibility thresholds. Record actual permissions only after they are established. Save configuration. A checked box is your record, not a grant of rights. The starting codebook is fixed in source; its version is configurable.
+2. **API connections:** obtain a YouTube Data API key from [Google Cloud Console](https://console.cloud.google.com/) and, optionally, a Gemini key from [Google AI Studio](https://aistudio.google.com/apikey). Paste keys in the interface, save and test. Keys are memory-only and must be re-entered after restart unless provided as environment variables. Choose a listed Gemini model only after confirming that it supports public YouTube video input. Listing a model does not test video support.
+3. **Data discovery:** import individual video URLs/IDs or fact-check CSV rows (`video_id` or `url`, optional `source_url`, `note`). Save seed handles, channel IDs and URLs, then expand. Run keyword searches in limited batches. The job monitor records progress; repeat the search operation to continue unfinished windows. If interrupted after an ID is saved but before metadata is fetched, use Retrieve missing metadata. Known input IDs are preserved even when the API returns no details. Search results are never a platform census.
+4. **Video library:** filter by priority and retrieval state. All in-period accessible uploads remain candidates for review regardless of duration or keywords. Low-priority random review is an exploratory feature, not a formal sampled audit. Add relevant discovered channels to the seed list. The library shows up to 500 matching rows; use filters to narrow results.
+5. **AI screening:** after permission for third-party processing, select a batch or specify IDs, start with ten diverse clips, and compare drafts with human judgments. The SDK and service are not installed/tested live in the build environment. The model output is validated locally; it never sets final eligibility or origin verification. Use the video review page to inspect results.
+6. **Verification and coding:** open a video, verify playback, record disclosures, set canonical content group for reposts, record evidence, and code video/persona variables. Use `all` as the evidence persona scope only when all speaking personas are covered. Source and rationale are required for Levels 1 and 2. Level 3 requires visual evidence and at least two independent suspected-synthetic judgments. Save an adjudicated decision only after reviewing evidence. Grouping is manual; no content fingerprinting or downloads.
+7. **Coding & reliability:** create two coder tokens, share each privately, and assign a reproducible random sample using a recorded seed. Coders use separate browser profiles on the same computer, sign in with their own tokens, and see only their assignments and submissions. Administrator adjudicates after independent submissions, which remain versioned. Persona matching uses shared IDs; check correspondence before interpreting alpha. The program uses nominal Krippendorff alpha with undefined results for constant categories. Missing/unknown/uncertain/not-applicable values are excluded from paired calculations; report this choice and review it with your supervisor.
+8. **Analysis & reports:** after analysis permission, inspect the eligibility funnel, evidence levels, descriptive counts, reliability, channel concentration and feasibility gates. Only current public in-period uploads with recent manual playback confirmation, adjudicated eligibility and recorded origin evidence count. Reposts are grouped. A Level 1/2 share does not establish a representative sample. Literature and ethics gates cannot be passed automatically. Descriptive results are not evidence of causal impact. Aggregate exports require explicit permission. Browser print can save a PDF of the current report.
+9. **Data compliance:** refresh or purge expired metadata. The application removes expired video/channel metadata and pre-screen fields at startup, on relevant views and periodically while the local server runs. Locator IDs, evidence, discovery logs, annotations, model outputs and backups remain subject to their respective permissions. This is not a compliance certification. If the computer is shut down the app cannot perform retention maintenance until restarted. Do not keep or redistribute restricted data. Exports intentionally contain aggregate summaries only.
+
+## Local data and access
+
+- `data/research.db` is created automatically. `data/admin.token` is a private access token. Neither is distributed in the ZIP. Keep the directory private. No raw video files are downloaded.
+- Stop the application before backing up the database. Backups may themselves contain restricted material; do not create or retain them unless authorised. A backup policy must be established separately.
+- Configuration changes are blocked while jobs are queued/running. If the process stops during a job, it is marked paused on restart. Pause/cancel is cooperative between calls; an in-flight request may complete. Search/playlist checkpoints preserve progress. To deliberately repeat a completed acquisition under a new protocol, use a fresh research data directory (`RESEARCH_DATA`). No destructive reset button is provided.
+- The local token system isolates coder API responses, not people who can read local files, access the administrator's browser, or share credentials. This is not a secure multi-site collaboration platform.
+- Official policy and service references: [YouTube developer policies](https://developers.google.com/youtube/terms/developer-policies), [quota calculator](https://developers.google.com/youtube/data/determine_quota_cost), [Gemini video understanding](https://ai.google.dev/gemini-api/docs/video-understanding), [Researcher Program](https://research.youtube.com/).
+
+## Validation and known gaps
+
+Run `python -m pytest -q` and `node --check webapp/static/app.js` (Node optional, syntax check only). The original tests were updated for the deliberate changes in screening/quota logic; obsolete CLI report tests were replaced with tests of the actual control centre. The 25 offline tests cover core API fixtures, checkpoint continuation, unavailable records, metadata expiration, output validation, request accounting, coder access boundaries, annotation validation, feasibility gates and job permission failures. The HTTP test client uses temporary databases. No real API requests or real study video observations were performed.
+
+This release deliberately uses a local FastAPI service and vanilla browser HTML/CSS/JS rather than Next.js and Tailwind. It avoids a second runtime and frontend build. Live YouTube and Gemini integration, browser compatibility, full data permissions, external fact-check dataset availability, and scientific validation require the researcher to complete the pilot. The Gemini SDK dependency is not pinned to a tested version because it was unavailable in the build environment. The user must verify the currently supported SDK and model. The app does not implement a fully configurable codebook editor, a matched genuine-vox-pop comparison corpus, automatic fact-check web ingestion, inferential regression/chi-square models, publication-ready statistical figures, remote coder accounts, automatic duplicate recognition, formal low-priority audit sampling, annotation CSV round-tripping, or comprehensive backup/export retention automation. These are intentionally not claimed as completed. No published paper, human ethics approval or platform permission is implied.
+
+See `REQUIREMENTS.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `PHASES.md`, `STATUS.md`, and `TEST_PLAN.md` for the implementation boundary and next validation steps.
