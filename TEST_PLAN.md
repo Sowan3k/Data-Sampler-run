@@ -1,13 +1,18 @@
 # Test plan
 
-## Executed offline
+## Automated (run with `python -m pytest -q`)
 
-`python -m pytest -q`: 44 tests. `tests/test_fixes.py` covers corpus locking after removal and old playback checks, channel locators after purge, repost-group availability, label prevalence from Level 1 and 3 only, the screened-eligible sample pool, both alpha rules, the categorical codebook, timestamp formats, key redaction, the screening and evidence-scope endpoints, and the Gemini duration cap with error detail. Covers parsing, Bangla matching, timezone boundaries, fake YouTube API, search checkpoints, unavailable ID retention, metadata expiry, interrupted hydration, synthetic flag states, malformed model responses, timestamp bounds, nominal alpha, feasibility exclusion, retry accounting, HTTP authorization, blind coder data isolation and permission gating. `node --check webapp/static/app.js` passed.
+68 tests in four files:
 
-## Researcher acceptance tests (not executed live)
+- `tests/test_pipeline.py`: collection client, parsing, Bangla matching, time windows, Gemini output parsing.
+- `tests/test_control_centre.py`: checkpoints, hydration, alpha values, access control, permissions.
+- `tests/test_fixes.py`: 0.3.0 defects (corpus locking, channel locators, sample pool, codebook, timestamps, Gemini cap). The Gemini job test skips when the SDK is not installed.
+- `tests/test_v031.py`: 0.3.1 defects and deliverables: out-of-period after expiry, unknown period, separate dated observations, freshness, usable pairs, completeness, unmatched personas, frozen and immutable rounds, two codebook versions, RQ3 and upload-level reporting, exclusion reasons, pseudonymised exports, search log, reproducibility package round trip and tamper detection, timezone fallback, config and legacy migration, HTTP screening rules, round lifecycle and export permissions.
 
-- Launch on target OS, inspect each page in normal and mobile-width browser, switch theme, save setup and confirm persistence on restart.
-- Connect real API keys; retrieve one known video and inspect synthetic flag alongside dated manual observation. Expand one channel. Pause/restart and resume a limited search; reconcile actual records against API console quotas.
-- Run ten diverse videos through the selected model; validate transcription, timestamps and persona boundaries manually. Record failures. Do not use model inference as proof of AI generation.
-- Create two independent coder identities and complete shared sample; check that original submissions remain separate and alpha is calculated before adjudication. Independently reproduce statistics in R or Python before use in paper.
-- Test data handling against actual permission terms, including retained locator keys, provenance, backups and export restrictions. Obtain ethics determination and platform permission before collection at scale.
+## Browser (manual run, see `tests/browser/browser_checks.py`)
+
+84 checks in headless Chrome at desktop and mobile widths with fixture data.
+
+## Manual acceptance
+
+TESTING_CHECKLIST.md: Windows, desktop and mobile browsers, live API integration and a research workflow dry run.

@@ -1,7 +1,7 @@
 import json, hashlib, copy
 import pytest
 from fastapi.testclient import TestClient
-from webapp import core as C
+from webapp import core as C, research as R
 from pilot import gemini_screen
 from pilot.youtube import YouTubeClient
 from test_pipeline import fake_api, GOOD, video_item
@@ -64,18 +64,18 @@ def test_missing_null_false_synthetic(data):
     assert [x['flag'] for x in C.library(c,cfg)]==['absent','null','false','true']
 
 def test_alpha_known_values():
-    assert C.alpha_nominal([['a','a'],['b','b']])==1
-    assert C.alpha_nominal([['a','a'],['a','a']]) is None
-    assert C.alpha_nominal([['a','b'],['a','b']])==pytest.approx(-.5)
+    assert R.alpha_nominal([['a','a'],['b','b']])==1
+    assert R.alpha_nominal([['a','a'],['a','a']]) is None
+    assert R.alpha_nominal([['a','b'],['a','b']])==pytest.approx(-.5)
 
 def test_feasibility_needs_final_evidence_viewing(data):
     c,cfg,client=data;C.expand(c,cfg,client,lambda:None,lambda _:None)
-    assert C.report(c,cfg)['eligible_unique']==0
+    assert R.report(c,cfg)['eligible_unique']==0
     v='AAAAAAAAAA1';a={'eligibility':'eligible','video':{},'personas':[{'id':'1','codes':{'age':'elderly'}}]}
     c.execute('INSERT INTO finals(video_id,version,payload,created) VALUES(?,?,?,?)',(v,cfg['version'],C.dumps(a),C.now()))
-    c.execute("UPDATE inventory SET playback='viewable',playback_at=? WHERE video_id=?",(C.now(),v));c.commit();assert C.report(c,cfg)['eligible_unique']==0
+    c.execute("UPDATE inventory SET playback='viewable',playback_at=? WHERE video_id=?",(C.now(),v));c.commit();assert R.report(c,cfg)['eligible_unique']==0
     c.execute('INSERT INTO evidence(video_id,kind,source,observed,persona,note) VALUES(?,?,?,?,?,?)',(v,'fact_check','https://example.org','2026-01-01','all','Test fixture evidence'))
-    c.commit();r=C.report(c,cfg);assert r['eligible_unique']==1 and r['verified']==1 and r['decision']=='NOT ESTABLISHED'
+    c.commit();r=R.report(c,cfg);assert r['eligible_unique']==1 and r['verified']==1 and r['decision']=='NOT ESTABLISHED'
 
 def test_annotation_rejects_missing_persona_and_out_of_range():
     with pytest.raises(ValueError):C.validate_annotation({'eligibility':'eligible','personas':[]})
@@ -107,8 +107,9 @@ def test_api_ui_and_isolation(api):
     assert cl.get('/api/library',headers=ch).status_code==403
     assert cl.get('/api/video/AAAAAAAAAA1',headers=ch).status_code==403
     with s.cx() as c:
-        c.execute('INSERT INTO assignments VALUES(?,?,?)',('AAAAAAAAAA1','coderA',cfg['version']));c.commit()
-    d=cl.get('/api/video/AAAAAAAAAA1',headers=ch).json();assert set(d)=={'video_id','own_annotation','version'}
+        rid=c.execute("INSERT INTO rounds(name,codebook_version,codebook,rules,created) VALUES('t',?,?,?,?)",(cfg['version'],C.dumps(C.codebook_snapshot(cfg['version'])),C.dumps(R.rules_from_config(cfg)),C.now())).lastrowid
+        c.execute('INSERT INTO round_assignments VALUES(?,?,?)',(rid,'AAAAAAAAAA1','coderA'));c.commit()
+    d=cl.get('/api/video/AAAAAAAAAA1',headers=ch).json();assert set(d)=={'video_id','own_annotation','own_submitted','version','round'}
     assert cl.post('/api/video/AAAAAAAAAA1/annotation',headers=ch,json={'version':cfg['version'],'final':True,'payload':{'eligibility':'uncertain','personas':[]}}).status_code==200
     assert cl.get('/api/video/AAAAAAAAAA1',headers=h).json()['final'] is None
     assert cl.get('/api/export/json',headers=h).status_code==403

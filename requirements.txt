@@ -5,3 +5,5 @@ pydantic==2.13.5
 PyYAML==6.0.3
 pytest==9.0.2
 google-genai>=3.6
+# Windows has no system timezone database; zoneinfo needs this package there.
+tzdata>=2024.1

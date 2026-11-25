@@ -1,8 +1,8 @@
 # Phases
 
-1. Foundation: revised database, checkpoint collection, metadata priority, strict output validation. Implemented.
-2. User interface: setup, connections, discovery, library and job controls. Implemented.
-3. Coding: evidence, persona forms, independent coder assignments and final coding. Implemented local-only.
-4. Analysis: nominal alpha, descriptive breakdowns, gate report, aggregate exports. Implemented pilot scope.
-5. Live validation: real keys, one seed channel, synthetic field test, ten diverse clips, second coder. Pending.
-6. Full research readiness: resolve permissions, verify codebook, matched comparison sample, inferential analysis plan, independent review. Pending.
+1. Foundation: database, checkpoint collection, metadata priority, output validation. Done.
+2. Interface: setup, connections, discovery, library and jobs. Done.
+3. Coding: evidence, persona forms, independent coding rounds, adjudication. Done (local only).
+4. Analysis: reliability rules, report, flow, exports and reproducibility package. Done (pilot scope).
+5. Live validation: Windows install, real keys, one seed channel, synthetic field test, ten varied clips, second-coder dry run. Next (TESTING_CHECKLIST.md).
+6. Data collection and feasibility assessment. After phase 5.

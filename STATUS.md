@@ -1,3 +1,7 @@
 # Release status
 
-Version 0.3.0: functional local pilot application. No actual research dataset included. 44 offline Python tests passed in the build environment, including 19 for the 0.3.0 fixes. A local server smoke test returned the interface, session, codebook and configuration. JavaScript syntax checked using Node. Initial real browser navigation was blocked by the container's browser policy. Live YouTube and Gemini API calls are untested; Gemini SDK absent in the build environment. See README for detailed scope and caveats.
+Version 0.3.1: feasibility pilot release. No research data included.
+
+Tested in the build environment (Linux, Python 3.13): 68 offline tests, 84 browser checks in headless Chrome at 1366 px and 390 px, a fresh install with `start.sh`, and timezone lookup without a system timezone database. Not yet tested: Windows installation, other browsers and real phones, live YouTube and Gemini calls, and a dry run with a second coder. TESTING_CHECKLIST.md lists each check and its status.
+
+Next milestone: data collection and the feasibility assessment. No new features are planned before then.

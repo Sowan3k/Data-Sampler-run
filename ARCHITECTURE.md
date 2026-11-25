@@ -1,7 +1,11 @@
 # Architecture
 
-`run.py` starts a localhost FastAPI application and opens the browser. `webapp/static/` contains the responsive interface. `webapp/server.py` exposes token-protected routes and a cooperative job worker. `webapp/core.py` manages persistent jobs, discovery checkpoints, evidence, annotations, reliability and feasibility. `pilot/` retains the original project's API, schema, date parsing and Gemini code with selected fixes. The old CLI and report are retired.
+`run.py` starts a localhost FastAPI application and opens the browser. `webapp/static/` holds the interface (plain JavaScript, no build step). `webapp/server.py` exposes token-protected routes and a cooperative job worker.
 
-SQLite separates inventory locators, API metadata, discovery provenance, evidence, independent coding revisions, final decisions, assignments, model runs, configuration and audit records. API requests are counted before attempts. Search checkpoints are keyed by query/window/order/filters. Playlist checkpoints are keyed by playlist and study period. The latest manual annotation is distinct from adjudicated coding. The inventory keeps the channel ID as a locator and the admin's screening decision; both survive the metadata purge. Availability comes from the dated availability_checks log. The app stores no downloaded audiovisual files.
+- `webapp/core.py`: schema and migrations, collection jobs (search, channel expansion, metadata), the inventory, dated observations, the codebook and annotation validation.
+- `webapp/research.py`: coding rounds, reliability (pure function, re-derivable from exports), and the feasibility report with flow, RQ3, content and upload level, and checklist.
+- `webapp/exports.py`: search log, coded dataset and reproducibility package, with pseudonymous keys.
+- `webapp/analysis/analysis.py`: the standalone script shipped inside the package.
+- `pilot/`: YouTube client, pre-screen and Gemini prompt and validation.
 
-The database and administrator token are private local state. There is one research project per data directory. Server-side role checks protect blind coder endpoints. No public hosting or institutional authentication is implemented.
+SQLite tables separate API metadata (`videos`, `channels`, `prescreen`, purged after 30 days) from research records (`inventory`, `discovery`, `availability_checks`, `playback_checks`, `evidence`, `rounds`, `round_assignments`, `annotations`, `finals`, `search_log`, `audit`). The database and administrator token are private local state. One research project per data directory.

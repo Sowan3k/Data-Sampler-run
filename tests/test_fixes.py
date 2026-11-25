@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from webapp import core as C
+from webapp import core as C, research as R
 from pilot import gemini_screen
 from pilot.youtube import YouTubeClient
 from test_pipeline import fake_api, GOOD, VIDEOS
@@ -44,16 +44,18 @@ def test_coded_video_stays_in_corpus_after_old_playback_and_removal(corpus):
     vid = 'AAAAAAAAAA1'
     code_eligible(c, cfg, vid)
     c.execute("UPDATE inventory SET playback='viewable', playback_at='2020-01-01T00:00:00+00:00' WHERE video_id=?", (vid,)); c.commit()
-    r = C.report(c, cfg)
+    C.record_playback(c, vid, 'viewable'); c.execute("UPDATE playback_checks SET observed_at='2020-01-01T00:00:00+00:00'"); c.commit()
+    r = R.report(c, cfg)
     assert r['eligible_unique'] == 1 and r['eligible_available'] == 1      # an old playback check no longer drops it
     backup = VIDEOS.pop(vid)
     try:
         C.ingest(c, cfg, client, [vid])                                       # video no longer returned by the API
     finally:
         VIDEOS[vid] = backup
-    r = C.report(c, cfg)
+    r = R.report(c, cfg)
     assert r['eligible_unique'] == 1                                          # still in the coded corpus
-    assert r['eligible_available'] == 0 and r['availability'] == {'unavailable': 1}
+    assert r['eligible_available'] == 0 and r['content_level']['availability'] == {'not_viewable_at_last_check': 1}
+    assert r['upload_level']['api_status'] == {'not_returned': 1}
     assert r['conditions']['eligible_available'] is False                     # the pilot gate counts available videos
 
 
@@ -64,8 +66,8 @@ def test_channel_locator_survives_metadata_purge(corpus):
     assert C.purge(c, cfg) == 4
     assert c.execute('SELECT COUNT(*) FROM videos').fetchone()[0] == 0
     row = next(x for x in C.library(c, cfg) if x['video_id'] == 'AAAAAAAAAA1')
-    assert row['channel_id'] == 'UC_one' and row['title'] is None and row['availability'] == 'public'
-    r = C.report(c, cfg)
+    assert row['channel_id'] == 'UC_one' and row['title'] is None and row['api_status'] == 'public' and row['period_flag'] == 1
+    r = R.report(c, cfg)
     assert r['eligible_unique'] == 1 and r['channels'] == 1 and r['channels_available'] == 1
 
 
@@ -73,7 +75,8 @@ def test_known_out_of_period_upload_is_not_counted(corpus):
     c, cfg, client = corpus
     C.register(c, 'AAAAAAAAAA4', 'manual', ''); C.ingest(c, cfg, client, ['AAAAAAAAAA4'])
     code_eligible(c, cfg, 'AAAAAAAAAA4')
-    assert C.report(c, cfg)['eligible_unique'] == 0
+    r = R.report(c, cfg)
+    assert r['eligible_unique'] == 0 and r['flow']['excluded_outside_period'] == 1
 
 
 def test_repost_group_available_if_any_member_is(corpus):
@@ -85,7 +88,7 @@ def test_repost_group_available_if_any_member_is(corpus):
         C.ingest(c, cfg, client, ['AAAAAAAAAA1'])
     finally:
         VIDEOS['AAAAAAAAAA1'] = backup
-    r = C.report(c, cfg)
+    r = R.report(c, cfg)
     assert r['eligible_unique'] == 1 and r['eligible_available'] == 1
 
 
@@ -93,9 +96,9 @@ def test_report_counts_party_and_label_prevalence_only_from_level_1_and_3(corpus
     c, cfg, _ = corpus
     code_eligible(c, cfg, 'AAAAAAAAAA1', 'fact_check')
     code_eligible(c, cfg, 'AAAAAAAAAA5', 'platform_label')
-    r = C.report(c, cfg)
-    assert r['party_favoured'] == {'bnp': 2} and r['message_counts']['endorsement'] == 2
-    assert r['label_observations_level_1_3'] == {'platform:unknown': 1, 'creator:unknown': 1}
+    r = R.report(c, cfg)
+    assert r['content_level']['party_favoured'] == {'bnp': 2} and r['content_level']['message_counts']['personas_endorsing_a_party'] == 2
+    assert r['content_level']['labels_level_1_3'] == {'creator:no_or_unknown': 1, 'platform:no_or_unknown': 1}
 
 
 # --- 2. reliability sample pool and alpha ------------------------------------
@@ -107,27 +110,22 @@ def test_sample_pool_only_screened_eligible_canonical_available(corpus):
     c.execute("UPDATE inventory SET group_id='AAAAAAAAAA1' WHERE video_id='AAAAAAAAAA5'"); c.commit()
     pool = [r['video_id'] for r in C.screened_eligible(c, cfg)]
     assert pool == ['AAAAAAAAAA1']        # repost and unavailable lead excluded, unscreened uploads excluded
+    C.record_playback(c, 'AAAAAAAAAA1', 'unavailable', 'Video unavailable'); c.commit()
+    assert C.screened_eligible(c, cfg) == []   # a person saw it unavailable
 
 
 def test_alpha_strict_keeps_unknown_as_category():
     groups = [['a', 'a'], ['b', 'b'], ['a', 'unknown'], ['b', 'uncertain']]
-    loose = C.alpha_nominal(groups, C.LOOSE_DROP); strict = C.alpha_nominal(groups)
+    loose = R.alpha_nominal(groups, R.LOOSE_DROP); strict = R.alpha_nominal(groups)
     assert loose == 1 and strict < 1
 
 
-def test_reliability_gate_uses_strict_alpha(corpus):
-    c, cfg, _ = corpus
-    for name in ('coderA', 'coderB'):
-        c.execute('INSERT INTO assignments VALUES(?,?,?)', ('AAAAAAAAAA1', name, cfg['version']))
-    payloads = {'coderA': {'gender': 'male', 'age': 'elderly', 'endorses_party': 'bnp'},
-                'coderB': {'gender': 'male', 'age': 'unknown', 'endorses_party': 'bnp'}}
-    for name, codes in payloads.items():
-        a = {'eligibility': 'eligible', 'origin_judgment': 'uncertain', 'video': {}, 'personas': [{'id': '1', 'codes': codes}]}
-        c.execute('INSERT INTO annotations(video_id,coder,version,payload,created) VALUES(?,?,?,?,?)', ('AAAAAAAAAA1', name, cfg['version'], C.dumps(a), C.now()))
-    c.commit()
-    rel = C.reliability(c, cfg)
-    assert rel['variables']['age']['units'] == 1 and rel['variables']['age']['units_excluding_uncertain'] == 0
-    assert 'endorses_party' in rel['variables'] and 'endorsement' not in rel['variables']
+def test_reliability_gate_uses_strict_alpha():
+    sub = lambda age: {'eligibility': 'eligible', 'origin_judgment': 'uncertain', 'video': {}, 'personas': [{'id': '1', 'codes': {'gender': 'male', 'age': age, 'endorses_party': 'bnp'}}]}
+    res = R.compute_reliability({'AAAAAAAAAA1': {'coderA': sub('elderly'), 'coderB': sub('unknown')}}, C.codebook_snapshot('1.1'),
+                                {'alpha': .67, 'min_pairs': 1, 'min_completeness': .8, 'reliability_n': 1, 'critical': C.CRITICAL_PERSONA})
+    assert res['variables']['age']['usable_pairs'] == 1 and res['variables']['age']['usable_pairs_excluding_uncertain'] == 0
+    assert 'endorses_party' in res['variables'] and 'endorsement' not in res['variables']
 
 
 # --- 3. categorical codebook ---------------------------------------------------
@@ -189,8 +187,8 @@ def test_screening_decision_and_sample_pool(api):
     base = {'playback': 'viewable', 'creator_label': 'unknown', 'platform_label': 'unknown', 'group_id': 'AAAAAAAAAA1'}
     assert cl.post('/api/video/AAAAAAAAAA1/observe', headers=h, json={**base, 'screening': 'excluded'}).status_code == 400
     assert cl.post('/api/video/AAAAAAAAAA1/observe', headers=h, json={**base, 'screening': 'eligible'}).status_code == 200
-    r = cl.post('/api/assign', headers=h, json={'coders': ['coderA', 'coderB'], 'n': 5, 'seed': 1}).json()
-    assert r == {'assigned': 1, 'pool': 1}
+    r = cl.post('/api/rounds', headers=h, json={'name': 'Round 1', 'coders': ['coderA', 'coderB'], 'n': 5, 'seed': 1}).json()
+    assert r['assigned'] == 1 and r['pool'] == 1
 
 
 def test_evidence_scope_must_be_a_listed_choice(api):
@@ -202,6 +200,7 @@ def test_evidence_scope_must_be_a_listed_choice(api):
 
 
 def test_gemini_job_skips_long_uploads_and_keeps_error_detail(api, monkeypatch):
+    pytest.importorskip('google.genai', reason='requires the google-genai SDK from requirements.txt')
     cl, s, h = api
     seed_server(s)
     cfg = cl.get('/api/config', headers=h).json()

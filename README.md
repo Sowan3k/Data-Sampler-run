@@ -1,59 +1,71 @@
 # Synthetic Citizens Research Control Centre
 
-Version 0.3.0 | Local research prototype
+Version 0.3.1. Local research tool for the feasibility pilot of "Who Gets Synthesised? AI-Generated 'Ordinary Voters' on YouTube in Bangladesh's 2026 Election".
 
-An operational local browser interface built from the supplied `synthetic-citizens-pilot` project. It starts with an empty research database; no examples or invented research findings appear in the application. Study defaults come from the proposal dated 23 November 2026. This version is intended for a feasibility pilot and further validation, not for unsupervised scientific or production use.
+The application collects candidate videos through the official YouTube Data API, supports screening, origin verification, independent double-coding and adjudication, and produces the feasibility decision in section 7.9 of the proposal together with a reproducible research dataset. It runs on one computer, in the browser, with no data leaving that computer except the API requests you start. It contains no example data and generates no findings on its own.
 
 ## Quick start
 
-**Windows:** Install Python 3.11 or 3.12 (enable Add Python to PATH), extract the ZIP, then double-click `START-WINDOWS.bat`. The first run installs dependencies; subsequent launches reuse the environment. A browser opens automatically. Keep the launcher window open while collecting data. If automatic browser opening fails, copy the local URL printed in the window into a browser. The URL contains your private administrator token; do not share it.
+**Windows.** Install Python 3.11, 3.12 or 3.13 from python.org and tick "Add Python to PATH". Extract the ZIP and double-click `START-WINDOWS.bat`. The first run installs dependencies (it reinstalls automatically when `requirements.txt` changes). A browser tab opens. Keep the black window open while you work. The address contains your private administrator token; do not share it.
 
-**macOS/Linux:** Extract, open a terminal in this folder, then run `bash start.sh`. Or run the three commands below. No Node.js, Docker or separate frontend installation is required.
+**macOS or Linux.** Run `bash start.sh` in the extracted folder.
 
-```sh
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
-python -m pip install -r requirements.txt
-python run.py
-```
+The application listens only on `http://127.0.0.1:8765` (change with `RESEARCH_PORT`). Do not expose it to a network.
 
-The web application runs at `http://127.0.0.1:8765`. Use `RESEARCH_PORT` to change the port if necessary. The server is local-only by design. Do not expose it on the internet. If running on a remote machine or mobile environment, a secure deployment adaptation would be needed; this ZIP is not an iOS application.
+## Workflow
 
-## Guided workflow
+Every page explains its purpose, how to read it and the next step. The Overview page shows which steps are done.
 
-1. **Research setup:** check the study period, queries, screening terms and feasibility thresholds. Record actual permissions only after they are established. Save configuration. A checked box is your record, not a grant of rights. The starting codebook is fixed in source; its version is configurable. Codebook 1.1 uses fixed categories for party favoured, endorsement, attack, visible and stated religion, visible and stated occupation, factual claims and the RQ3 authenticity cues, so these variables can be counted and tested for reliability.
-2. **API connections:** obtain a YouTube Data API key from [Google Cloud Console](https://console.cloud.google.com/) and, optionally, a Gemini key from [Google AI Studio](https://aistudio.google.com/apikey). Paste keys in the interface, save and test. Keys are memory-only and must be re-entered after restart unless provided as environment variables. Choose a listed Gemini model only after confirming that it supports public YouTube video input. Listing a model does not test video support.
-3. **Data discovery:** import individual video URLs/IDs or fact-check CSV rows (`video_id` or `url`, optional `source_url`, `note`). Save seed handles, channel IDs and URLs, then expand. Run keyword searches in limited batches. The job monitor records progress; repeat the search operation to continue unfinished windows. If interrupted after an ID is saved but before metadata is fetched, use Retrieve missing metadata. Known input IDs are preserved even when the API returns no details. Search results are never a platform census.
-4. **Video library:** filter by priority and retrieval state. All in-period accessible uploads remain candidates for review regardless of duration or keywords. Low-priority random review is an exploratory feature, not a formal sampled audit. Add relevant discovered channels to the seed list. Record a screening decision on each video page (eligible, excluded with a reason, or uncertain). The reliability sample is drawn only from screened-eligible videos. The library shows up to 500 matching rows; use filters to narrow results.
-5. **AI screening:** after permission for third-party processing, select a batch or specify IDs, start with ten diverse clips, and compare drafts with human judgments. The SDK and service are not installed/tested live in the build environment. The model output is validated locally; it never sets final eligibility or origin verification. Use the video review page to inspect results, including the service's own error message when a request fails. Automatic batches skip uploads longer than the configured maximum (180 seconds by default) to protect the free daily video allowance; list IDs to screen longer videos.
-6. **Verification and coding:** open a video, verify playback, record disclosures, set canonical content group for reposts, record evidence, and code video/persona variables. Choose `all` as the evidence persona scope only when the evidence covers every speaking persona. Only `all` counts toward Level 1 or 2. Source and rationale are required for Levels 1 and 2. Level 3 requires visual evidence and at least two independent suspected-synthetic judgments. Save an adjudicated decision only after reviewing evidence. Grouping is manual; no content fingerprinting or downloads.
-7. **Coding & reliability:** create two coder tokens, share each privately, and assign a reproducible random sample using a recorded seed. The sample is drawn only from canonical videos marked eligible in screening and available at the last check. Coders use separate browser profiles on the same computer, sign in with their own tokens, and see only their assignments and submissions. Administrator adjudicates after independent submissions, which remain versioned. Number personas by order of appearance (1, 2, 3) so IDs match across coders, and check correspondence before interpreting alpha. The program uses nominal Krippendorff alpha with undefined results for constant categories. Alpha is reported two ways: with unknown and uncertain kept as categories, which the feasibility gate uses, and with them dropped, which can overstate agreement. Missing and not-applicable values are always dropped. Review this choice with your supervisor.
-8. **Analysis & reports:** after analysis permission, inspect the eligibility funnel, evidence levels, descriptive counts, reliability, channel concentration and feasibility gates. The coded corpus is every adjudicated eligible video with recorded origin evidence. It stays fixed when a video is later removed, made private, or its metadata expires, and availability at the last check is reported as an outcome for RQ4. The pilot gate counts the eligible videos still available at the last check, as section 7.9 of the proposal requires. Refresh metadata before reading the report so the availability checks are recent. Reposts are grouped. A Level 1/2 share does not establish a representative sample. Literature and ethics gates cannot be passed automatically. Descriptive results are not evidence of causal impact. Aggregate exports require explicit permission. Browser print can save a PDF of the current report.
-9. **Data compliance:** refresh or purge expired metadata. The application removes expired video/channel metadata and pre-screen fields at startup, on relevant views and periodically while the local server runs. Locator IDs, evidence, discovery logs, annotations, model outputs and backups remain subject to their respective permissions. This is not a compliance certification. If the computer is shut down the app cannot perform retention maintenance until restarted. Do not keep or redistribute restricted data. Exports intentionally contain aggregate summaries only.
+1. **Research setup.** Check the study period, search terms and feasibility thresholds. Agree the reliability rules with your supervisor (see RELIABILITY.md). Record each permission only once it has been granted.
+2. **API connections.** Paste and test your YouTube Data API key. Gemini is optional. Keys stay in memory until restart, or can be set as `YOUTUBE_API_KEY` and `GEMINI_API_KEY`.
+3. **Data discovery.** Import fact-check links, then run "Retrieve missing metadata". Save seed channels and expand them. Run logged keyword searches in small batches. Watch progress on Jobs.
+4. **Video library.** Open videos from the top. Record a screening decision on each: eligible, excluded with a reason, or uncertain. Only uploads inside the study period can be marked eligible. Record playback checks with the message YouTube shows when a video is unavailable.
+5. **Origin evidence and adjudication.** Add evidence (fact-check, disclosure, label, or visual judgment) and save the adjudicated coding. Level 1 and 2 evidence must cover every speaking persona.
+6. **Coding & reliability.** Create two coder tokens and start a round. The sample is drawn from screened-eligible videos with a recorded seed. Coders work blind on their own browser profiles. Close the round when every assignment is submitted; its result is then frozen. Adjudicate sampled videos only after the round closes.
+7. **Analysis & reports.** Work through the feasibility checklist. The report shows the flow of records with exclusion reasons, availability and disclosure at content and upload level, reliability per round, and descriptive results for RQ1 to RQ4.
+8. **Data compliance.** Refresh metadata before reporting. Export the search log, the coded dataset, or the full reproducibility package.
 
-## Local data and access
+CODEBOOK.md holds every variable definition for the second coder. The same text appears under each field in the coding form.
 
-- `data/research.db` is created automatically. `data/admin.token` is a private access token. Neither is distributed in the ZIP. Keep the directory private. No raw video files are downloaded.
-- Stop the application before backing up the database. Backups may themselves contain restricted material; do not create or retain them unless authorised. A backup policy must be established separately.
-- Configuration changes are blocked while jobs are queued/running. If the process stops during a job, it is marked paused on restart. Pause/cancel is cooperative between calls; an in-flight request may complete. Search/playlist checkpoints preserve progress. To deliberately repeat a completed acquisition under a new protocol, use a fresh research data directory (`RESEARCH_DATA`). No destructive reset button is provided.
-- The local token system isolates coder API responses, not people who can read local files, access the administrator's browser, or share credentials. This is not a secure multi-site collaboration platform.
-- Official policy and service references: [YouTube developer policies](https://developers.google.com/youtube/terms/developer-policies), [quota calculator](https://developers.google.com/youtube/data/determine_quota_cost), [Gemini video understanding](https://ai.google.dev/gemini-api/docs/video-understanding), [Researcher Program](https://research.youtube.com/).
+## Research rules the software enforces
+
+- **Corpus.** The coded corpus is every adjudicated eligible upload, inside the study period, with origin evidence, counting reposts once. It stays fixed when a video is later removed or its metadata expires. Uploads whose study period was never established are excluded and counted, never assumed in.
+- **Observations.** YouTube API status and playback checks are separate dated observations. Within each category the latest observation wins.
+- **Availability for the decision.** A video counts as available when its latest YouTube check is public or unlisted and no older than the configured window (default 30 days), and its latest playback check, if any, is viewable.
+- **Reliability.** See RELIABILITY.md. Rules are frozen per round. A critical variable needs enough usable pairs, enough completeness and alpha at or above the threshold. Unmatched personas are reported.
+- **Content and upload level.** Identity, message and cue statistics count each unique video once. Disclosure and availability are also reported for every upload, because a repost can be labelled or removed separately.
+
+## Data handling
+
+- `data/research.db` and `data/admin.token` are created on first run and are excluded from Git. Keep the folder private.
+- YouTube metadata (titles, descriptions, statistics) older than 30 days is removed automatically. Video IDs, the study-period classification, dated checks, screening decisions and codes are research records and are kept.
+- Exports contain your own records only, never YouTube metadata or AI output. IDs become stable pseudonymous keys unless the "ID export" permission is recorded. The key mapping (`data/export.salt`) never leaves the computer.
+- No video files are downloaded.
+
+## Reproducibility package
+
+Data compliance, "Export reproducibility package", produces a ZIP with the coded data, independent annotations per round, search log, flow counts, codebook, study settings, round rules and stored results, the report, and `analysis/analysis.py`. The script uses only the Python standard library. It re-computes the descriptive tables and every round's reliability from the CSV files and exits with an error if anything differs from the stored results.
+
+## Testing
+
+`python -m pytest -q` runs 68 offline tests. TESTING_CHECKLIST.md lists what was tested in the build environment (including 84 browser checks in headless Chrome at desktop and mobile widths) and the manual checks that still need your Windows laptop, other browsers, your API keys and a second coder. Live YouTube and Gemini integration has not been tested yet.
+
+## Not included
+
+A configurable codebook editor, the genuine vox pop comparison corpus, automatic fact-check ingestion, inferential statistics, keyboard shortcuts, remote coder accounts and automatic duplicate detection. The next milestone is data collection and the feasibility assessment, not new features.
+
+## Changes in 0.3.1
+
+- Out-of-period uploads can no longer enter the corpus after their metadata expires; the study-period classification is now a kept research record.
+- API status and playback are separate dated observations; playback checks record YouTube's message.
+- A configurable freshness window decides which availability checks count.
+- Coding rounds with frozen codebook and rules; closed rounds are immutable; adjudication is blocked during an open round; two rounds stay reproducible.
+- Reliability requires usable pairs and completeness per critical variable; unmatched personas are reported.
+- New report sections: flow with exclusion reasons, RQ3 cue tables, content versus upload level, actionable checklist.
+- Exports: search log, coded dataset, reproducibility package with analysis script.
+- Interface: guidance on every page, field definitions, Load more with totals, local drafts with unsaved-change warnings, previous, next and next-uncoded navigation.
+- `tzdata` dependency and timezone fallback for Windows; launchers reinstall when requirements change.
 
 ## Changes in 0.3.0
 
-- Coded eligible videos stay in the corpus after removal, privacy changes, metadata expiry or an old playback check. Availability is reported per content group as an outcome (RQ4). The channel ID is kept as a locator so channel counts survive the 30-day metadata purge.
-- The pilot gate counts eligible videos available at the last check, from enough channels, with the Level 1/2 share computed on that same set.
-- The reliability sample is drawn only from screened-eligible, canonical, available videos. A screening decision field was added to each video page.
-- Codebook 1.1 replaces free-text endorsement, attack and party fields with fixed categories and adds categorical religion, occupation, factual-claim and authenticity-cue codes.
-- Alpha is reported with unknown and uncertain kept as categories (used for the gate) and with them dropped.
-- Gemini failures keep the service's error message with key-like strings removed. Timestamps such as `0:04`, `1:02:03` and `0:04.5` are accepted. Automatic batches skip long uploads.
-- Evidence persona scope is a fixed choice. `google-genai>=3.6`. The default config no longer names a channel.
-
-## Validation and known gaps
-
-Run `python -m pytest -q` and `node --check webapp/static/app.js` (Node optional, syntax check only). The original tests were updated for the deliberate changes in screening/quota logic; obsolete CLI report tests were replaced with tests of the actual control centre. The 44 offline tests cover core API fixtures, checkpoint continuation, unavailable records, metadata expiration, output validation, request accounting, coder access boundaries, annotation validation, feasibility gates and job permission failures. The HTTP test client uses temporary databases. No real API requests or real study video observations were performed.
-
-This release deliberately uses a local FastAPI service and vanilla browser HTML/CSS/JS rather than Next.js and Tailwind. It avoids a second runtime and frontend build. Live YouTube and Gemini integration, browser compatibility, full data permissions, external fact-check dataset availability, and scientific validation require the researcher to complete the pilot. The Gemini SDK floor is google-genai 3.6, the version whose interactions API this code was checked against offline. Live calls remain untested, and the user must verify the currently supported model. The app does not implement a fully configurable codebook editor, a matched genuine-vox-pop comparison corpus, automatic fact-check web ingestion, inferential regression/chi-square models, publication-ready statistical figures, remote coder accounts, automatic duplicate recognition, formal low-priority audit sampling, annotation CSV round-tripping, or comprehensive backup/export retention automation. These are intentionally not claimed as completed. No published paper, human ethics approval or platform permission is implied.
-
-See `REQUIREMENTS.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `PHASES.md`, `STATUS.md`, and `TEST_PLAN.md` for the implementation boundary and next validation steps.
+Corpus locking, screened-eligible sampling, categorical codebook 1.1, alpha with two missing-data rules, Gemini error detail and duration cap.
